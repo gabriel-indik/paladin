@@ -18,6 +18,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"math/big"
 	"os"
@@ -28,14 +29,21 @@ import (
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
 )
 
+const (
+	algorithmClique = "clique"
+	algorithmQBFT   = "QBFT"
+)
+
 func main() {
 	// NOTE: To get the right permissions, this needs to run inside docker against the volume of Besu
+	var algo string
+	var dir string
 
-	// Validate dir is ok
-	if len(os.Args) < 2 {
-		exitErrorf("missing directory")
-	}
-	dir := os.Args[1]
+	// Parse the flags
+	flag.StringVar(&dir, "dir", ".", "Caching directory")
+	flag.StringVar(&algo, "algorithm", algorithmClique, fmt.Sprintf("Blockchain algorithm to use (%s/%s) - default clique", algorithmClique, algorithmQBFT))
+	flag.Parse()
+
 	dataDir := path.Join(dir, "data")
 	keyFile := path.Join(dir, "key")
 	keyPubFile := path.Join(dir, "key.pub")
@@ -66,11 +74,6 @@ func main() {
 			ChainID:     1337,
 			CancunTime:  0,
 			ZeroBaseFee: true,
-			QBFT: QBFTConfig{
-				BlockPeriodSeconds:    1,
-				EpochLength:           30000,
-				RequestTimeoutSeconds: 4,
-			},
 		},
 		Nonce:      0,
 		Timestamp:  ethtypes.HexUint64(time.Now().Unix()),
@@ -85,8 +88,19 @@ func main() {
 				),
 			},
 		},
-		ExtraData: qbftExtraData(kp.Address),
 	}
+
+	switch algo {
+	case algorithmClique:
+		genesis.Config.Clique = defaultCliqueConfig()
+		genesis.ExtraData = cliqueExtraData(kp.Address)
+	case algorithmQBFT:
+		genesis.Config.QBFT = defaultQBFTConfig()
+		genesis.ExtraData = string(qbftExtraData(kp.Address))
+	default:
+		exitErrorf("unknown algorithm %q", algo)
+	}
+
 	writeFileJSON(genesisFile, &genesis)
 
 }

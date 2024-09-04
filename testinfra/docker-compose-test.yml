@@ -12,7 +12,8 @@ services:
     volumes:
       - besu_data:/var/besu:rw
     command:
-      - /var/besu
+      - --dir=/var/besu 
+      - --algorithm=clique
   besu:
     image: hyperledger/besu:latest
     user: 0:0
@@ -32,9 +33,9 @@ services:
     command:
       - --logging=DEBUG
       - --rpc-http-enabled
-      - --rpc-http-api=ETH,QBFT,WEB3,DEBUG
+      - --rpc-http-api=ETH,CLIQUE,QBFT,WEB3,DEBUG
       - --rpc-ws-enabled
-      - --rpc-ws-api=ETH,QBFT,WEB3,DEBUG
+      - --rpc-ws-api=ETH,CLIQUE,QBFT,WEB3,DEBUG
       - --tx-pool=SEQUENCED
       - --tx-pool-limit-by-account-percentage=1.0
       - --tx-pool-max-size=1000000

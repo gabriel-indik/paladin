@@ -16,7 +16,9 @@
 package main
 
 import (
+	"fmt"
 	"math/big"
+	"strings"
 
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/rlp"
@@ -31,14 +33,15 @@ type GenesisJSON struct {
 	MixHash    ethtypes.HexBytes0xPrefix `json:"mixHash"`
 	Coinbase   *ethtypes.Address0xHex    `json:"coinbase"`
 	Alloc      map[string]AllocEntry     `json:"alloc"`
-	ExtraData  ethtypes.HexBytes0xPrefix `json:"extraData"`
+	ExtraData  string                    `json:"extraData"`
 }
 
 type GenesisConfig struct {
-	ChainID     int64      `json:"chainId"`
-	CancunTime  int64      `json:"cancunTime"`
-	ZeroBaseFee bool       `json:"zeroBaseFee"`
-	QBFT        QBFTConfig `json:"qbft"`
+	ChainID     int64         `json:"chainId"`
+	CancunTime  int64         `json:"cancunTime"`
+	ZeroBaseFee bool          `json:"zeroBaseFee"`
+	QBFT        *QBFTConfig   `json:"qbft,omitempty"`
+	Clique      *CliqueConfig `json:"clique,omitempty"`
 }
 
 type QBFTConfig struct {
@@ -46,9 +49,29 @@ type QBFTConfig struct {
 	EpochLength           int `json:"epochlength"`
 	RequestTimeoutSeconds int `json:"requesttimeoutseconds"`
 }
-
+type CliqueConfig struct {
+	BlockPeriodSeconds int  `json:"blockperiodseconds"`
+	EpochLength        int  `json:"epochlength"`
+	CreateEmptyBlocks  bool `json:"createemptyblocks"`
+}
 type AllocEntry struct {
 	Balance ethtypes.HexInteger `json:"balance"`
+}
+
+func defaultQBFTConfig() *QBFTConfig {
+	return &QBFTConfig{
+		BlockPeriodSeconds:    1,
+		EpochLength:           30000,
+		RequestTimeoutSeconds: 4,
+	}
+}
+
+func defaultCliqueConfig() *CliqueConfig {
+	return &CliqueConfig{
+		BlockPeriodSeconds: 1,
+		CreateEmptyBlocks:  false,
+		EpochLength:        30000,
+	}
 }
 
 func qbftExtraData(validators ...ethtypes.Address0xHex) []byte {
@@ -71,4 +94,20 @@ func qbftExtraData(validators ...ethtypes.Address0xHex) []byte {
 		rlp.List{},
 	}
 	return extraDataRLP.Encode()
+}
+
+func cliqueExtraData(validators ...ethtypes.Address0xHex) string {
+	extraData := ""
+
+	// 32 bytes of vanity data ('paladin' in hex)
+	extraData += "0x70616c6164696e00000000000000000000000000000000000000000000000000"
+
+	// add the addresses of the validators
+	for _, validator := range validators {
+		// remove the 0x prefix
+		extraData += validator.String()[2:]
+	}
+
+	// add padding to 236 bytes
+	return strings.ReplaceAll(fmt.Sprintf("%-236s", extraData), " ", "0")
 }
