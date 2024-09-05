@@ -20,10 +20,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"math/big"
 	"os"
 	"path"
-	"time"
 
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/secp256k1"
@@ -67,40 +65,15 @@ func main() {
 	writeFileStr(keyFile, (ethtypes.HexBytes0xPrefix)(kp.PrivateKeyBytes()))
 	writeFileStr(keyPubFile, (ethtypes.HexBytes0xPrefix)(kp.PublicKeyBytes()))
 
-	// Write the genesis
-	oneEth := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
-	genesis := &GenesisJSON{
-		Config: GenesisConfig{
-			ChainID:     1337,
-			CancunTime:  0,
-			ZeroBaseFee: true,
-		},
-		Nonce:      0,
-		Timestamp:  ethtypes.HexUint64(time.Now().Unix()),
-		GasLimit:   30 * 1000000,
-		Difficulty: 1,
-		MixHash:    randBytes(32),
-		Coinbase:   ethtypes.MustNewAddress("0x0000000000000000000000000000000000000000"),
-		Alloc: map[string]AllocEntry{
-			kp.Address.String(): {
-				Balance: *ethtypes.NewHexInteger(
-					new(big.Int).Mul(oneEth, big.NewInt(1000000000)),
-				),
-			},
-		},
-	}
-
+	var genesis GenesisBuilder
 	switch algo {
 	case algorithmClique:
-		genesis.Config.Clique = defaultCliqueConfig()
-		genesis.ExtraData = cliqueExtraData(kp.Address)
+		genesis = newGenesisCliqueJSON(kp.Address)
 	case algorithmQBFT:
-		genesis.Config.QBFT = defaultQBFTConfig()
-		genesis.ExtraData = string(qbftExtraData(kp.Address))
+		genesis = newGenesisQBFTJSON(kp.Address)
 	default:
 		exitErrorf("unknown algorithm %q", algo)
 	}
-
 	writeFileJSON(genesisFile, &genesis)
 
 }

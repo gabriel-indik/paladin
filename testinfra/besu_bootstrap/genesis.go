@@ -19,13 +19,27 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/hyperledger/firefly-signer/pkg/ethtypes"
 	"github.com/hyperledger/firefly-signer/pkg/rlp"
 )
 
+// Constants
+const (
+	ChainID     = 1337
+	GasLimit    = 30 * 1000000
+	EpochLength = 30000
+	Nonce       = 0
+	CancunTime  = 0
+	ZeroBaseFee = true
+)
+
+// GenesisBuilder is an interface for building genesis blocks
+type GenesisBuilder interface{}
+
+// GenesisJSON represents the JSON structure of a genesis block
 type GenesisJSON struct {
-	Config     GenesisConfig             `json:"config"`
 	Nonce      ethtypes.HexUint64        `json:"nonce"`
 	Timestamp  ethtypes.HexUint64        `json:"timestamp"`
 	GasLimit   ethtypes.HexUint64        `json:"gasLimit"`
@@ -33,48 +47,149 @@ type GenesisJSON struct {
 	MixHash    ethtypes.HexBytes0xPrefix `json:"mixHash"`
 	Coinbase   *ethtypes.Address0xHex    `json:"coinbase"`
 	Alloc      map[string]AllocEntry     `json:"alloc"`
-	ExtraData  string                    `json:"extraData"`
 }
 
+// GenesisConfig represents the configuration for a genesis block
 type GenesisConfig struct {
-	ChainID     int64         `json:"chainId"`
-	CancunTime  int64         `json:"cancunTime"`
-	ZeroBaseFee bool          `json:"zeroBaseFee"`
-	QBFT        *QBFTConfig   `json:"qbft,omitempty"`
-	Clique      *CliqueConfig `json:"clique,omitempty"`
+	ChainID     int64 `json:"chainId"`
+	CancunTime  int64 `json:"cancunTime"`
+	ZeroBaseFee bool  `json:"zeroBaseFee"`
 }
 
-type QBFTConfig struct {
-	BlockPeriodSeconds    int `json:"blockperiodseconds"`
-	EpochLength           int `json:"epochlength"`
-	RequestTimeoutSeconds int `json:"requesttimeoutseconds"`
+// AllocEntry represents an allocation entry in the genesis block
+type AllocEntry struct {
+	Balance ethtypes.HexInteger `json:"balance"`
 }
+
+var _ GenesisBuilder = (*GenesisCliqueJSON)(nil)
+
+// GenesisCliqueJSON represents the JSON structure of a Clique genesis block
+type GenesisCliqueJSON struct {
+	GenesisJSON `json:",inline"`
+	Config      GenesisCliqueConfig `json:"config"`
+	ExtraData   string              `json:"extraData"`
+}
+
+// GenesisCliqueConfig represents the configuration for a Clique genesis block
+type GenesisCliqueConfig struct {
+	GenesisConfig `json:",inline"`
+	Clique        CliqueConfig `json:"clique"`
+}
+
+// CliqueConfig represents the Clique-specific configuration
 type CliqueConfig struct {
 	BlockPeriodSeconds int  `json:"blockperiodseconds"`
 	EpochLength        int  `json:"epochlength"`
 	CreateEmptyBlocks  bool `json:"createemptyblocks"`
 }
-type AllocEntry struct {
-	Balance ethtypes.HexInteger `json:"balance"`
-}
 
-func defaultQBFTConfig() *QBFTConfig {
-	return &QBFTConfig{
-		BlockPeriodSeconds:    1,
-		EpochLength:           30000,
-		RequestTimeoutSeconds: 4,
+// newGenesisCliqueJSON creates a new GenesisCliqueJSON instance
+func newGenesisCliqueJSON(addresses ethtypes.Address0xHex) *GenesisCliqueJSON {
+	oneEth := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+
+	return &GenesisCliqueJSON{
+		Config: GenesisCliqueConfig{
+			GenesisConfig: GenesisConfig{
+				ChainID:     ChainID,
+				CancunTime:  CancunTime,
+				ZeroBaseFee: ZeroBaseFee,
+			},
+			Clique: CliqueConfig{
+				BlockPeriodSeconds: 1,
+				CreateEmptyBlocks:  false,
+				EpochLength:        EpochLength,
+			},
+		},
+		GenesisJSON: GenesisJSON{
+			Nonce:      0,
+			Timestamp:  ethtypes.HexUint64(time.Now().Unix()),
+			GasLimit:   GasLimit,
+			Difficulty: 1,
+			MixHash:    randBytes(32),
+			Coinbase:   ethtypes.MustNewAddress("0x0000000000000000000000000000000000000000"),
+			Alloc: map[string]AllocEntry{
+				addresses.String(): {
+					Balance: *ethtypes.NewHexInteger(
+						new(big.Int).Mul(oneEth, big.NewInt(1000000000)),
+					),
+				},
+			},
+		},
+		ExtraData: extraDataClique(addresses),
 	}
 }
 
-func defaultCliqueConfig() *CliqueConfig {
-	return &CliqueConfig{
-		BlockPeriodSeconds: 1,
-		CreateEmptyBlocks:  false,
-		EpochLength:        30000,
+// extraDataClique generates the extra data for a Clique genesis block
+func extraDataClique(validators ...ethtypes.Address0xHex) string {
+	extraData := "0x70616c6164696e00000000000000000000000000000000000000000000000000"
+
+	for _, validator := range validators {
+		extraData += validator.String()[2:]
+	}
+
+	return strings.ReplaceAll(fmt.Sprintf("%-236s", extraData), " ", "0")
+}
+
+var _ GenesisBuilder = (*GenesisQBFTJSON)(nil)
+
+// GenesisQBFTJSON represents the JSON structure of a QBFT genesis block
+type GenesisQBFTJSON struct {
+	GenesisJSON `json:",inline"`
+	ExtraData   ethtypes.HexBytes0xPrefix `json:"extraData"`
+	Config      GenesisQBFTConfig         `json:"config"`
+}
+
+// GenesisQBFTConfig represents the configuration for a QBFT genesis block
+type GenesisQBFTConfig struct {
+	GenesisConfig `json:",inline"`
+	QBFT          QBFTConfig `json:"qbft"`
+}
+
+// QBFTConfig represents the QBFT-specific configuration
+type QBFTConfig struct {
+	BlockPeriodSeconds    int `json:"blockperiodseconds"`
+	EpochLength           int `json:"epochlength"`
+	RequestTimeoutSeconds int `json:"requesttimeoutseconds"`
+}
+
+// newGenesisQBFTJSON creates a new GenesisQBFTJSON instance
+func newGenesisQBFTJSON(addresses ethtypes.Address0xHex) *GenesisQBFTJSON {
+	oneEth := new(big.Int).Exp(big.NewInt(10), big.NewInt(18), nil)
+
+	return &GenesisQBFTJSON{
+		Config: GenesisQBFTConfig{
+			GenesisConfig: GenesisConfig{
+				ChainID:     ChainID,
+				CancunTime:  CancunTime,
+				ZeroBaseFee: ZeroBaseFee,
+			},
+			QBFT: QBFTConfig{
+				BlockPeriodSeconds:    1,
+				EpochLength:           EpochLength,
+				RequestTimeoutSeconds: 4,
+			},
+		},
+		GenesisJSON: GenesisJSON{
+			Nonce:      0,
+			Timestamp:  ethtypes.HexUint64(time.Now().Unix()),
+			GasLimit:   GasLimit,
+			Difficulty: 1,
+			MixHash:    randBytes(32),
+			Coinbase:   ethtypes.MustNewAddress("0x0000000000000000000000000000000000000000"),
+			Alloc: map[string]AllocEntry{
+				addresses.String(): {
+					Balance: *ethtypes.NewHexInteger(
+						new(big.Int).Mul(oneEth, big.NewInt(1000000000)),
+					),
+				},
+			},
+		},
+		ExtraData: extraDataQBFT(addresses),
 	}
 }
 
-func qbftExtraData(validators ...ethtypes.Address0xHex) []byte {
+// extraDataQBFT generates the extra data for a QBFT genesis block
+func extraDataQBFT(validators ...ethtypes.Address0xHex) []byte {
 	vanity := make([]byte, 32)
 	copy(vanity, ([]byte)("paladin"))
 	var rlpValidators rlp.List
@@ -94,20 +209,4 @@ func qbftExtraData(validators ...ethtypes.Address0xHex) []byte {
 		rlp.List{},
 	}
 	return extraDataRLP.Encode()
-}
-
-func cliqueExtraData(validators ...ethtypes.Address0xHex) string {
-	extraData := ""
-
-	// 32 bytes of vanity data ('paladin' in hex)
-	extraData += "0x70616c6164696e00000000000000000000000000000000000000000000000000"
-
-	// add the addresses of the validators
-	for _, validator := range validators {
-		// remove the 0x prefix
-		extraData += validator.String()[2:]
-	}
-
-	// add padding to 236 bytes
-	return strings.ReplaceAll(fmt.Sprintf("%-236s", extraData), " ", "0")
 }
