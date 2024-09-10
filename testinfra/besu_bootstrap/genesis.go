@@ -147,9 +147,10 @@ type GenesisQBFTConfig struct {
 
 // QBFTConfig represents the QBFT-specific configuration
 type QBFTConfig struct {
-	BlockPeriodSeconds    int `json:"blockperiodseconds"`
-	EpochLength           int `json:"epochlength"`
-	RequestTimeoutSeconds int `json:"requesttimeoutseconds"`
+	BlockPeriodSeconds      int `json:"blockperiodseconds"`
+	EmptyBlockPeriodSeconds int `json:"emptyblockperiodseconds"`
+	EpochLength             int `json:"epochlength"`
+	RequestTimeoutSeconds   int `json:"requesttimeoutseconds"`
 }
 
 // newGenesisQBFTJSON creates a new GenesisQBFTJSON instance
@@ -164,9 +165,10 @@ func newGenesisQBFTJSON(addresses ethtypes.Address0xHex) *GenesisQBFTJSON {
 				ZeroBaseFee: ZeroBaseFee,
 			},
 			QBFT: QBFTConfig{
-				BlockPeriodSeconds:    1,
-				EpochLength:           EpochLength,
-				RequestTimeoutSeconds: 4,
+				EmptyBlockPeriodSeconds: 10,
+				BlockPeriodSeconds:      1,
+				EpochLength:             EpochLength,
+				RequestTimeoutSeconds:   10,
 			},
 		},
 		GenesisJSON: GenesisJSON{

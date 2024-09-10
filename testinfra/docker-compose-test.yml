@@ -13,9 +13,10 @@ services:
       - besu_data:/var/besu:rw
     command:
       - --dir=/var/besu 
-      - --algorithm=clique
+      - --algorithm=QBFT
   besu:
-    image: hyperledger/besu:latest
+    container_name: besu
+    image: 604386504253.dkr.ecr.us-east-2.amazonaws.com/kaleido-node-besu:24.8.0-kaleido-20240910-237
     user: 0:0
     volumes:
       - besu_data:/var/besu:rw
@@ -30,12 +31,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    environment:
+      BESU_X_DEV_BFT_PERIOD_MS: 300
     command:
       - --logging=DEBUG
       - --rpc-http-enabled
-      - --rpc-http-api=ETH,CLIQUE,QBFT,WEB3,DEBUG
+      - --rpc-http-api=ETH,QBFT,WEB3,DEBUG
       - --rpc-ws-enabled
-      - --rpc-ws-api=ETH,CLIQUE,QBFT,WEB3,DEBUG
+      - --rpc-ws-api=ETH,QBFT,WEB3,DEBUG
       - --tx-pool=SEQUENCED
       - --tx-pool-limit-by-account-percentage=1.0
       - --tx-pool-max-size=1000000
