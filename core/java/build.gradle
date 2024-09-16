@@ -6,15 +6,21 @@ plugins {
     id 'com.google.protobuf' version '0.9.4'
 }
 
-mainClassName = 'io.kaleido.Main'
+mainClassName = 'io.kaleido.paladin.Main'
 group = 'io.kaleido'
 version = '1.0-SNAPSHOT'
 
 task wrapper(type: Wrapper){}
 
 application {
-    applicationDefaultJvmArgs = ["-Djna.library.path=" +
-        file("${rootDir}/core/go").absolutePath + ":" + file("${rootDir}/toolkit/go").absolutePath ]
+    applicationDefaultJvmArgs = ["-Djna.library.path=" + file("${rootDir}/build/libs").absolutePath ]
+    
+    // add other exoected args here
+    // applicationDefaultJvmArgs += ["<config file>", "<engine name>"] 
+    
+    // or use the following to pass args from command line
+    // --args="<config file> <engine name>"
+
 }
 
 repositories {
@@ -27,7 +33,7 @@ test {
         showStandardStreams = true
     }
     useJUnitPlatform()
-    systemProperty "jna.library.path", file("${rootDir}/core/go").absolutePath + ":" + file("${rootDir}/toolkit/go").absolutePath
+    systemProperty "jna.library.path", file("${rootDir}/build/libs").absolutePath 
 }
 
 configurations {
@@ -128,3 +134,4 @@ sourceSets {
     }
 }
 
+ 
