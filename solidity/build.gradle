@@ -66,12 +66,21 @@ task test(type: Exec, dependsOn: compile) {
     outputs.file(testResults)
 }
 
-task build(dependsOn: test) {}
+// This task builds everything, including running the tests
+tasks.named('build') {
+    dependsOn test
+}
 
-task clean(type: Delete) {
+// Define the clean task
+tasks.named('clean') {
     delete "node_modules"
     delete buildOutput, "cache", "typechain-types"
     delete testResults
+}
+
+// Assemble task that only compiles and generates artifacts, without running tests
+tasks.named('assemble') {
+    dependsOn compile  // Only runs the compile task
 }
 
 artifacts {

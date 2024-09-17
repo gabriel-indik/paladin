@@ -1,10 +1,11 @@
-name: Paladin CI build
+name: build
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      artifacts_path:
+        required: true
+        type: string
 
 jobs:
   build:
@@ -40,4 +41,12 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build with Gradle
-        run: ./gradlew -PcomposeLogs=true -PverboseTests=true --no-daemon --parallel build
+        run: ./gradlew -PcomposeLogs=true -PverboseTests=true --no-daemon --parallel 
+
+      - uses: actions/upload-artifact@v4
+        name: Upload build artifacts
+        with:
+          name: paladin-libs
+          path: ${{ inputs.artifacts_path }}
+          if-no-files-found: error
+          

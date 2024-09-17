@@ -1,0 +1,38 @@
+name: merged
+permissions: read-all
+on:
+  push:
+    branches: [main] 
+    paths-ignore:
+      - '**.sh'
+      - 'docs/*'
+      - 'build/*'
+      - '.github/*'
+      # - '**.md' // Uncomment this line to ignore all markdown files
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    permissions:
+      actions: read
+      checks: read
+      deployments: read
+      id-token: write
+      issues: read
+      discussions: read
+      packages: read
+      pages: read
+      pull-requests: write
+      repository-projects: read
+      security-events: read
+      statuses: read
+      attestations: read
+      contents: write
+    uses: ./.github/workflows/build.yaml
+    secrets: inherit
+    with:
+      artifacts_path: buils/libs
+ 

@@ -84,11 +84,11 @@ task test(type: Exec) {
     dependsOn ':testinfra:startTestInfra'
 }
 
-task build {
+tasks.named('build') {
     dependsOn lint
     dependsOn test
 }
 
-task clean(type: Delete) {
+tasks.named('clean') {
     delete 'coverage'
 }

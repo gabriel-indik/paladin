@@ -1,0 +1,68 @@
+# Base image: Ubuntu
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV LANG=C.UTF-8
+ENV PATH=$PATH:/usr/local/go/bin:/opt/gradle/bin:/usr/local/bin/protoc/bin
+
+# Install required dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    unzip \
+    git \
+    openjdk-21-jdk \
+    build-essential \
+    wget \
+    && apt-get clean
+
+# Install Protoc
+RUN PB_REL="https://github.com/protocolbuffers/protobuf/releases" && \
+    curl -LO $PB_REL/download/v25.1/protoc-25.1-linux-x86_64.zip && \
+    unzip protoc-25.1-linux-x86_64.zip -d /usr/local/bin/protoc && \
+    rm protoc-25.1-linux-x86_64.zip
+
+# Install Go
+RUN GO_VERSION=1.22.7 && \
+    wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
+    rm go${GO_VERSION}.linux-amd64.tar.gz
+
+# Install Gradle
+RUN GRADLE_VERSION=8.4 && \
+    wget https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip && \
+    unzip gradle-${GRADLE_VERSION}-bin.zip -d /opt && \
+    ln -s /opt/gradle-${GRADLE_VERSION}/bin/gradle /usr/bin/gradle && \
+    rm gradle-${GRADLE_VERSION}-bin.zip
+
+# Set the working directory
+WORKDIR /app
+
+# Copy project files
+COPY . .
+
+# assemble executables/artifacts
+# this will build the project and generate the JAR file but will not test the project
+RUN ./gradlew --no-daemon --parallel assemble
+
+# Define the output directory for artifacts (Adjust as needed)
+ARG ARTIFACTS_PATH=build/libs
+
+ENTRYPOINT [                         \
+    "java",                          \ 
+    "-Djna.library.path=/app/libs",  \
+    "-jar",                          \
+    "/app/libs/paladin.jar"           \
+    ]
+
+# Default command-line arguments (config file and node name)
+# Override this with docker run <image> /app/other-config.yaml another-node
+
+CMD ["/app/config.paladin.yaml", "testbed"]
+
+
+# # Copy the artifacts to the final image
+# RUN mkdir /artifacts && \
+#     cp -r $ARTIFACTS_PATH/* /artifacts
+
+# # Set the entry point to display the build artifacts
+# CMD ["ls", "-la", "/artifacts"]

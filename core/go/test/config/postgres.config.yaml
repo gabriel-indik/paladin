@@ -1,0 +1,35 @@
+nodeName: node1
+db:
+  type: postgres  
+  postgres:
+    uri: 'postgres://postgres:my-secret@localhost:5432/postgres?sslmode=disable'
+    migrationsDir: './db/migrations/postgres'
+    autoMigrate: true
+    debugQueries: true
+grpc:
+  shutdownTimeout: 0
+rpcServer:
+  http:
+    port: 0
+    shutdownTimeout: 0
+  ws:
+    disabled: true
+    shutdownTimeout: 0
+blockchain:
+  http:
+    url: http://localhost:8545
+  ws:
+    url: ws://localhost:8546
+    initialConnectAttempts: 25
+signer:
+  keyDerivation:
+    type: "bip32"
+  keyStore:
+    type: "static"
+    static:
+      keys:
+        seed:
+          encoding: none
+          # DO NOT USE THIS MNEMONIC FOR ANYTHING APART FROM TESTBED TESTING
+          inline: worth race crush harbor atom race scrub quit glimpse solution style adapt catalog cheese nothing
+    

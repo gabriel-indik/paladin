@@ -1,10 +1,22 @@
-plugins {
-    id 'java'
-}
-
 group = 'io.kaleido'
-version = '1.0-SNAPSHOT'
 
+// Define core projects to be assembled and built
+def coreProjects = [
+    ':core:go',
+    ':toolkit:go',
+    ':core:java'
+]
+
+// Define a list of source directories to copy from
+def buildLibs = [
+    'core/go/build/libs',
+    'core/java/build/libs',
+    'toolkit/go/build/libs'
+]
+
+def artifacts = [
+    'solidity/artifacts'
+]
 ext {
     helpers = [
         lockResource: { task, lockFile ->
@@ -32,4 +44,85 @@ ext {
             }
         }
     ]
+}
+
+subprojects {
+    apply plugin: 'base'
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+// Task to copy all executables and binaries to the root-level build/libs directory
+task copyExecutables(type: Copy) {
+
+    // Define the root build directory
+    def libsDir = file("${buildDir}/libs")
+
+    doFirst {
+        libsDir.mkdirs()
+    }
+
+    // copy binaries from the defined directories
+    buildLibs.each { dir ->
+        from dir
+    }
+    into libsDir
+ 
+    // Ensure this task always runs
+    outputs.upToDateWhen { false }
+    
+    doLast {
+        println "Copied executables to ${libsDir}"
+    }
+}
+
+// Task to copy all executables and binaries to the root-level build/libs directory
+task copyArtifacts(type: Copy) {
+
+    // Define the root build directory
+    def artifactsDir = file("${buildDir}/artifacts")
+
+    doFirst {
+        artifactsDir.mkdirs()
+    }
+
+    // copy binaries from the defined directories
+    artifacts.each { dir ->
+        from dir
+    }
+    into artifactsDir
+
+    // Ensure this task always runs
+    outputs.upToDateWhen { false }
+    
+    doLast {
+        println "Copied artifacts to ${artifactsDir}"
+    }
+}
+
+// Root-level `assemble` task, only for core projects
+task assemble {
+    
+    // Ensure root assemble task depends on subprojects' assemble tasks
+    coreProjects.each { projectPath ->
+        dependsOn "${projectPath}:assemble"
+    }
+    
+    finalizedBy copyExecutables, copyArtifacts  // Ensure executables are copied after assembly
+    
+}
+
+// Root-level `build` task, only for core projects
+task build {
+
+}
+
+// Set default tasks
+defaultTasks 'build'
+
+// Clean task to clean all projects
+task clean {
+    delete "${buildDir}"
 }

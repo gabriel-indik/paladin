@@ -3,7 +3,13 @@ plugins {
 }
 
 group = 'io.kaleido'
-version = '1.0-SNAPSHOT'
+version = ''
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
 
 configurations {
     // Resolvable configurations
@@ -76,4 +82,13 @@ dependencies {
     implementation 'io.tmio:tuweni-units:2.4.2'
 
     implementation project(path: ":core:java")
+}
+
+// Disable compileJava when assemble is called
+gradle.taskGraph.whenReady { taskGraph ->
+    if (taskGraph.hasTask(assemble)) {
+        tasks.named('compileJava').configure {
+            enabled = false
+        }
+    }
 }
