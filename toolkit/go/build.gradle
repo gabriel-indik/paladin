@@ -98,8 +98,11 @@ task protoc(type: ProtoCompile, dependsOn: [installTools]) {
     }
 }
 
-task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
-    delete 'libstarter.dylib', 'libstarter.so', 'libstarter.dll', 'libstarter.h'
+tasks.named('clean') {
+    dependsOn ':testinfra:stopTestInfra'
+
+    delete "${buildDir}/libs"
+
     delete fileTree("bin") {
         exclude "README.md", ".gitignore"
     }
@@ -110,7 +113,7 @@ task clean(type: Delete, dependsOn: ':testinfra:stopTestInfra') {
     delete 'componenttest/abis'
 }
 
-task goGet(type:Exec, dependsOn:tasks.protoc) {
+task goGet(type:Exec, dependsOn: protoc) {
     workingDir '.'
 
     inputs.files('go.mod')
@@ -165,9 +168,9 @@ task test(type: Exec, dependsOn: [tasks.goGet,tasks.makeMocks]) {
 }
 
 task buildCoverageTxt(type: Exec, dependsOn: [
-        tasks.protoc,
-        tasks.lint,
-        tasks.test,
+        protoc,
+        lint,
+        test,
     ]) {
     inputs.files(fileTree(project.mkdir('coverage')) {
         include "covcounters.*"
@@ -181,7 +184,7 @@ task buildCoverageTxt(type: Exec, dependsOn: [
 
 }
 
-task aggregateCoverage(type: Copy, dependsOn: tasks.buildCoverageTxt) {
+task aggregateCoverage(type: Copy, dependsOn: buildCoverageTxt) {
     from 'coverage/coverage_unfiltered.txt'
     into 'coverage'
     outputs.files('coverage/coverage.txt')
@@ -191,16 +194,16 @@ task aggregateCoverage(type: Copy, dependsOn: tasks.buildCoverageTxt) {
     filter(LineContains, negate: true, contains: getProject().ext.coverageExcludedPackages, matchAny: true) 
 }
 
-task checkCoverage(type: GoCheckCoverage, dependsOn: [tasks.aggregateCoverage]) {
+task checkCoverage(type: GoCheckCoverage, dependsOn: [aggregateCoverage]) {
     coverageFile('coverage/coverage.txt')
     target = targetCoverage
     maxGap = maxCoverageBarGap
 }
 
-task buildStarterLibrary(type:Exec, dependsOn:[tasks.goGet]) {
+task buildStarterLibrary(type:Exec, dependsOn:[goGet]) {
     workingDir '.'
-
-    def libName;
+ 
+    def libName
     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
         libName = "libstarter.dll"
     } else if (Os.isFamily(Os.FAMILY_MAC)) {
@@ -209,26 +212,38 @@ task buildStarterLibrary(type:Exec, dependsOn:[tasks.goGet]) {
         libName = "libstarter.so"
     }
 
+    // Updated paths for outputs
+    def outputDir = "${buildDir}/libs"
+    def outputLib = "${outputDir}/${libName}"
+    def outputHeader = "${outputDir}/libstarter.h"
+
     inputs.files(goFiles)
-    outputs.files(libName, 'libstarter.h')
+    outputs.files(outputLib, outputHeader)
 
     environment("CGO_ENABLED", "1")
 
     executable 'go'
     args 'build'
-    args '-o', libName
+    args '-o', outputLib
     args '-buildmode=c-shared'
     args './domainstarter'
 }
 
-task build {
-    dependsOn tasks.lint
-    dependsOn tasks.test
-    dependsOn tasks.checkCoverage
-    dependsOn tasks.buildStarterLibrary
+tasks.named('build') {
+    dependsOn lint
+    dependsOn test
+    dependsOn checkCoverage
+    dependsOn buildStarterLibrary
 }
 
 dependencies {
     libstarter files(buildStarterLibrary)
     goSource files(goFiles, protoc)
+}
+
+assemble {
+    dependsOn buildStarterLibrary
+    doLast {
+        println "Assembling Go binaries without running tests"
+    }
 }

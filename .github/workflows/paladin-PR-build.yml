@@ -40,4 +40,4 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build with Gradle
-        run: ./gradlew -PcomposeLogs=true -PverboseTests=true --no-daemon --parallel build
+        run: ./gradlew -PcomposeLogs=true -PverboseTests=true -PjarVersion=v0.0.0 --no-daemon --parallel 

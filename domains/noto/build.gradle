@@ -87,11 +87,11 @@ task test(type: Exec) {
     helpers.dumpLogsOnFailure(it, ':testinfra:startTestInfra')
 }
 
-task build {
+tasks.named('build') {
     dependsOn test
 }
 
-task clean(type: Delete) {
+tasks.named('clean') {
     delete 'coverage'
     delete 'internal/noto/abis'
 }
