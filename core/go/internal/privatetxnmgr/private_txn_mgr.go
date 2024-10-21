@@ -17,13 +17,14 @@ package privatetxnmgr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
 	"github.com/hyperledger/firefly-common/pkg/i18n"
 	"github.com/kaleido-io/paladin/core/internal/components"
-	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/privatetxnstore"
 	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/ptmgrtypes"
+	"github.com/kaleido-io/paladin/core/internal/privatetxnmgr/syncpoints"
 	"github.com/kaleido-io/paladin/core/internal/statedistribution"
 	"gorm.io/gorm"
 
@@ -49,10 +50,10 @@ type privateTxManager struct {
 	orchestrators        map[string]*Orchestrator
 	endorsementGatherers map[string]ptmgrtypes.EndorsementGatherer
 	components           components.AllComponents
-	nodeID               string
+	nodeName             string
 	subscribers          []components.PrivateTxEventSubscriber
 	subscribersLock      sync.Mutex
-	store                privatetxnstore.Store
+	syncPoints           syncpoints.SyncPoints
 	stateDistributer     statedistribution.StateDistributer
 }
 
@@ -63,10 +64,11 @@ func (p *privateTxManager) PreInit(c components.PreInitComponents) (*components.
 
 func (p *privateTxManager) PostInit(c components.AllComponents) error {
 	p.components = c
-	p.store = privatetxnstore.NewStore(p.ctx, &p.config.Writer, c.Persistence())
+	p.nodeName = p.components.TransportManager().LocalNodeName()
+	p.syncPoints = syncpoints.NewSyncPoints(p.ctx, &p.config.Writer, c.Persistence(), c.TxManager())
 	p.stateDistributer = statedistribution.NewStateDistributer(
 		p.ctx,
-		p.nodeID,
+		p.nodeName,
 		p.components.TransportManager(),
 		p.components.StateManager(),
 		p.components.Persistence(),
@@ -79,7 +81,7 @@ func (p *privateTxManager) PostInit(c components.AllComponents) error {
 }
 
 func (p *privateTxManager) Start() error {
-	p.store.Start()
+	p.syncPoints.Start()
 	return nil
 }
 
@@ -88,12 +90,11 @@ func (p *privateTxManager) Stop() {
 
 }
 
-func NewPrivateTransactionMgr(ctx context.Context, nodeID string, config *pldconf.PrivateTxManagerConfig) components.PrivateTxManager {
+func NewPrivateTransactionMgr(ctx context.Context, config *pldconf.PrivateTxManagerConfig) components.PrivateTxManager {
 	p := &privateTxManager{
 		config:               config,
 		orchestrators:        make(map[string]*Orchestrator),
 		endorsementGatherers: make(map[string]ptmgrtypes.EndorsementGatherer),
-		nodeID:               nodeID,
 		subscribers:          make([]components.PrivateTxEventSubscriber, 0),
 	}
 	p.ctx, p.ctxCancel = context.WithCancel(ctx)
@@ -103,11 +104,12 @@ func NewPrivateTransactionMgr(ctx context.Context, nodeID string, config *pldcon
 func (p *privateTxManager) getOrchestratorForContract(ctx context.Context, contractAddr tktypes.EthAddress, domainAPI components.DomainSmartContract) (oc *Orchestrator, err error) {
 
 	if p.orchestrators[contractAddr.String()] == nil {
+		transportWriter := NewTransportWriter(domainAPI.Domain().Name(), &contractAddr, p.nodeName, p.components.TransportManager())
 		publisher := NewPublisher(p, contractAddr.String())
 		seq := NewSequencer(
-			p.nodeID,
+			p.nodeName,
 			publisher,
-			NewTransportWriter(domainAPI.Domain().Name(), &contractAddr, p.nodeID, p.components.TransportManager()),
+			transportWriter,
 		)
 		endorsementGatherer, err := p.getEndorsementGathererForContract(ctx, contractAddr)
 		if err != nil {
@@ -117,7 +119,7 @@ func (p *privateTxManager) getOrchestratorForContract(ctx context.Context, contr
 
 		p.orchestrators[contractAddr.String()] =
 			NewOrchestrator(
-				p.ctx, p.nodeID,
+				p.ctx, p.nodeName,
 				contractAddr, /** TODO: fill in the real plug-ins*/
 				&p.config.Orchestrator,
 				p.components,
@@ -125,9 +127,10 @@ func (p *privateTxManager) getOrchestratorForContract(ctx context.Context, contr
 				seq,
 				endorsementGatherer,
 				publisher,
-				p.store,
+				p.syncPoints,
 				p.components.IdentityResolver(),
 				p.stateDistributer,
+				transportWriter,
 			)
 		orchestratorDone, err := p.orchestrators[contractAddr.String()].Start(ctx)
 		if err != nil {
@@ -202,6 +205,43 @@ func (p *privateTxManager) HandleNewTx(ctx context.Context, tx *components.Priva
 	return nil
 }
 
+func (p *privateTxManager) validateDelegatedTransaction(ctx context.Context, tx *components.PrivateTransaction) error {
+	log.L(ctx).Debugf("Validating delegated transaction: %v", tx)
+	if tx.Inputs == nil || tx.Inputs.Domain == "" {
+		return i18n.NewError(ctx, msgs.MsgDomainNotProvided)
+	}
+
+	emptyAddress := tktypes.EthAddress{}
+	if tx.Inputs.To == emptyAddress {
+		return i18n.NewError(ctx, msgs.MsgContractAddressNotProvided)
+	}
+
+	if tx.PreAssembly == nil {
+		return i18n.NewError(ctx, msgs.MsgPrivateTxManagerInternalError, "PreAssembly is nil")
+	}
+	return nil
+
+}
+
+func (p *privateTxManager) handleDelegatedTransaction(ctx context.Context, tx *components.PrivateTransaction) error {
+	log.L(ctx).Debugf("Handling delegated transaction: %v", tx)
+
+	contractAddr := tx.Inputs.To
+	domainAPI, err := p.components.DomainManager().GetSmartContractByAddress(ctx, contractAddr)
+	if err != nil {
+		return err
+	}
+	oc, err := p.getOrchestratorForContract(ctx, contractAddr, domainAPI)
+	if err != nil {
+		return err
+	}
+	queued := oc.ProcessInFlightTransaction(ctx, tx)
+	if queued {
+		log.L(ctx).Debugf("Delegated Transaction with ID %s queued in database", tx.ID)
+	}
+	return nil
+}
+
 // Synchronous function to submit a deployment request which is asynchronously processed
 // Private transaction manager will receive a notification when the public transaction is confirmed
 // (same as for invokes)
@@ -221,11 +261,17 @@ func (p *privateTxManager) HandleDeployTx(ctx context.Context, tx *components.Pr
 		return i18n.WrapError(ctx, err, msgs.MsgDeployInitFailed)
 	}
 
+	// NOTE unlike private transactions, we assume that all verifiers are resolved locally
+
 	//Resolve keys synchronously so that we can return an error if any key resolution fails
 	keyMgr := p.components.KeyManager()
 	tx.Verifiers = make([]*prototk.ResolvedVerifier, len(tx.RequiredVerifiers))
 	for i, v := range tx.RequiredVerifiers {
-		resolvedKey, err := keyMgr.ResolveKeyNewDatabaseTX(ctx, v.Lookup, v.Algorithm, v.VerifierType)
+		unqualifiedLookup, err := tktypes.PrivateIdentityLocator(v.Lookup).Identity(ctx)
+		var resolvedKey *pldapi.KeyMappingAndVerifier
+		if err == nil {
+			resolvedKey, err = keyMgr.ResolveKeyNewDatabaseTX(ctx, unqualifiedLookup, v.Algorithm, v.VerifierType)
+		}
 		if err != nil {
 			return i18n.WrapError(ctx, err, msgs.MsgKeyResolutionFailed, v.Lookup, v.Algorithm)
 		}
@@ -246,22 +292,41 @@ func (p *privateTxManager) HandleDeployTx(ctx context.Context, tx *components.Pr
 }
 func (p *privateTxManager) deploymentLoop(ctx context.Context, domain components.Domain, tx *components.PrivateContractDeploy) {
 	log.L(ctx).Info("Starting deployment loop")
-	adddr, err := p.evaluateDeployment(ctx, domain, tx)
+	err := p.evaluateDeployment(ctx, domain, tx)
 	if err != nil {
 		log.L(ctx).Errorf("Error evaluating deployment: %s", err)
 		return
 	}
-	log.L(ctx).Infof("Deployment completed successfully. Contract address: %s", adddr.String())
+	log.L(ctx).Info("Deployment completed successfully. ")
 }
 
-func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain components.Domain, tx *components.PrivateContractDeploy) (*tktypes.EthAddress, error) {
+func (p *privateTxManager) revertDeploy(ctx context.Context, tx *components.PrivateContractDeploy, err error) error {
+	deployError := i18n.WrapError(ctx, err, msgs.MsgPrivateTxManagerDeployError)
+
+	var tryFinalize func()
+	tryFinalize = func() {
+		p.syncPoints.QueueTransactionFinalize(ctx, tktypes.EthAddress{}, tx.ID, deployError.Error(),
+			func(ctx context.Context) {
+				log.L(ctx).Debugf("Finalized deployment transaction: %s", tx.ID)
+			},
+			func(ctx context.Context, err error) {
+				log.L(ctx).Errorf("Error finalizing deployment: %s", err)
+				tryFinalize()
+			})
+	}
+	tryFinalize()
+	return deployError
+
+}
+
+func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain components.Domain, tx *components.PrivateContractDeploy) error {
 
 	// TODO there is a lot of common code between this and the Dispatch function in the orchestrator. should really move some of it into a common place
 	// and use that as an opportunity to refactor to be more readable
 
 	err := domain.PrepareDeploy(ctx, tx)
 	if err != nil {
-		return nil, i18n.WrapError(ctx, err, msgs.MsgDeployPrepareFailed)
+		return p.revertDeploy(ctx, tx, err)
 	}
 
 	publicTransactionEngine := p.components.PublicTxManager()
@@ -269,7 +334,7 @@ func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain compon
 	keyMgr := p.components.KeyManager()
 	resolvedAddrs, err := keyMgr.ResolveEthAddressBatchNewDatabaseTX(ctx, []string{tx.Signer})
 	if err != nil {
-		return nil, err
+		return p.revertDeploy(ctx, tx, err)
 	}
 
 	publicTXs := []*components.PublicTxSubmission{
@@ -277,7 +342,6 @@ func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain compon
 			Bindings: []*components.PaladinTXReference{{TransactionID: tx.ID, TransactionType: pldapi.TransactionTypePrivate.Enum()}},
 			PublicTxInput: pldapi.PublicTxInput{
 				From:            resolvedAddrs[0],
-				To:              &tx.InvokeTransaction.To,
 				PublicTxOptions: pldapi.PublicTxOptions{}, // TODO: Consider propagation from paladin transaction input
 			},
 		},
@@ -288,53 +352,53 @@ func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain compon
 
 		data, err := tx.InvokeTransaction.FunctionABI.EncodeCallDataCtx(ctx, tx.InvokeTransaction.Inputs)
 		if err != nil {
-			return nil, i18n.WrapError(ctx, err, msgs.MsgBaseLedgerTransactionFailed)
+			return p.revertDeploy(ctx, tx, i18n.WrapError(ctx, err, msgs.MsgPrivateTxMgrEncodeCallDataFailed))
 		}
 		publicTXs[0].Data = tktypes.HexBytes(data)
+		publicTXs[0].To = &tx.InvokeTransaction.To
+
 	} else if tx.DeployTransaction != nil {
 		//TODO
-		panic("Not implemented")
+		return p.revertDeploy(ctx, tx, i18n.NewError(ctx, msgs.MsgPrivateTxManagerInternalError, "DeployTransaction not implemented"))
 	} else {
-		//TODO error message
-		return nil, i18n.NewError(ctx, msgs.MsgBaseLedgerTransactionFailed)
+		return p.revertDeploy(ctx, tx, i18n.NewError(ctx, msgs.MsgPrivateTxManagerInternalError, "Neither InvokeTransaction nor DeployTransaction set"))
 	}
 
 	pubBatch, err := publicTransactionEngine.PrepareSubmissionBatch(ctx, publicTXs)
 	if err != nil {
-		return nil, i18n.WrapError(ctx, err, msgs.MsgPrivTxMgrPublicTxFail)
-	}
-
-	//transactions are always dispatched as a sequence, even if only a sequence of one
-	sequence := &privatetxnstore.DispatchSequence{
-		PrivateTransactionDispatches: []*privatetxnstore.DispatchPersisted{
-			{
-				PrivateTransactionID: tx.ID.String(),
-			},
-		},
+		return p.revertDeploy(ctx, tx, i18n.WrapError(ctx, err, msgs.MsgPrivateTxManagerInternalError, "PrepareSubmissionBatch failed"))
 	}
 
 	// Must make sure from this point we return the nonces
 	completed := false // and include whether we committed the DB transaction or not
-	sequence.PublicTxBatch = pubBatch
 	defer func() {
 		pubBatch.Completed(ctx, completed)
 	}()
 	if len(pubBatch.Rejected()) > 0 {
 		// We do not handle partial success - roll everything back
-		return nil, i18n.WrapError(ctx, pubBatch.Rejected()[0].RejectedError(), msgs.MsgPrivTxMgrPublicTxFail)
+		return p.revertDeploy(ctx, tx, i18n.WrapError(ctx, pubBatch.Rejected()[0].RejectedError(), msgs.MsgPrivateTxManagerInternalError, "Submission batch rejected "))
 	}
 
-	dispatchBatch := &privatetxnstore.DispatchBatch{
-		DispatchSequences: []*privatetxnstore.DispatchSequence{
+	//transactions are always dispatched as a sequence, even if only a sequence of one
+	sequence := &syncpoints.DispatchSequence{
+		PrivateTransactionDispatches: []*syncpoints.DispatchPersisted{
+			{
+				PrivateTransactionID: tx.ID.String(),
+			},
+		},
+	}
+	sequence.PublicTxBatch = pubBatch
+	dispatchBatch := &syncpoints.DispatchBatch{
+		DispatchSequences: []*syncpoints.DispatchSequence{
 			sequence,
 		},
 	}
 
 	// as this is a deploy we specify the null address
-	err = p.store.PersistDispatchBatch(ctx, tktypes.EthAddress{}, dispatchBatch, nil)
+	err = p.syncPoints.PersistDispatchBatch(ctx, tktypes.EthAddress{}, dispatchBatch, nil)
 	if err != nil {
 		log.L(ctx).Errorf("Error persisting batch: %s", err)
-		return nil, err
+		return p.revertDeploy(ctx, tx, err)
 	}
 
 	completed = true
@@ -345,19 +409,13 @@ func (p *privateTxManager) evaluateDeployment(ctx context.Context, domain compon
 		SigningAddress: tx.Signer,
 	})
 
-	psc, err := p.components.DomainManager().WaitForDeploy(ctx, tx.ID)
-	if err != nil {
-		return nil, i18n.WrapError(ctx, err, msgs.MsgBaseLedgerTransactionFailed)
-	}
-
-	addr := psc.Address()
-	return &addr, nil
+	return nil
 
 }
 
 func (p *privateTxManager) GetTxStatus(ctx context.Context, domainAddress string, txID string) (status components.PrivateTxStatus, err error) {
-	//TODO This is primarily here to help with testing for now
-	// this needs to be revisited ASAP as part of a holisitic review of the persistence model
+	// this returns status that we happen to have in memory at the moment and might be useful for debugging
+
 	targetOrchestrator := p.orchestrators[domainAddress]
 	if targetOrchestrator == nil {
 		//TODO should be valid to query the status of a transaction that belongs to a domain instance that is not currently active
@@ -503,7 +561,7 @@ func (p *privateTxManager) handleEndorsementRequest(ctx context.Context, message
 
 	err = p.components.TransportManager().Send(ctx, &components.TransportMessage{
 		MessageType: "EndorsementResponse",
-		ReplyTo:     p.nodeID,
+		ReplyTo:     p.nodeName,
 		Payload:     endorsementResponseBytes,
 		Node:        replyTo,
 		Component:   PRIVATE_TX_MANAGER_DESTINATION,
@@ -512,6 +570,39 @@ func (p *privateTxManager) handleEndorsementRequest(ctx context.Context, message
 		log.L(ctx).Errorf("Failed to send endorsement response: %s", err)
 		return
 	}
+}
+
+func (p *privateTxManager) handleDelegationRequest(ctx context.Context, messagePayload []byte) {
+	delegationRequest := &pbEngine.DelegationRequest{}
+	err := proto.Unmarshal(messagePayload, delegationRequest)
+	if err != nil {
+		log.L(ctx).Errorf("Failed to unmarshal delegation request: %s", err)
+		return
+	}
+
+	transaction := new(components.PrivateTransaction)
+	err = json.Unmarshal(delegationRequest.PrivateTransaction, &transaction)
+
+	//before persisting the transaction, we validate it and send a rejection message if it is invalid
+	if err == nil {
+		err = p.validateDelegatedTransaction(ctx, transaction)
+	}
+	if err != nil {
+		log.L(ctx).Errorf("Failed to validate delegated transaction: %s", err)
+		//TODO send a negative acknowledgement
+		return
+	}
+
+	//TODO persist the delegated transaction and only continue once it has been persisted
+
+	err = p.handleDelegatedTransaction(ctx, transaction)
+	if err != nil {
+		log.L(ctx).Errorf("Failed to handle delegated transaction: %s", err)
+		// do not send an ack and let the sender retry
+		return
+	}
+
+	//TODO send an ack
 }
 
 func (p *privateTxManager) handleEndorsementResponse(ctx context.Context, messagePayload []byte) {
@@ -531,7 +622,7 @@ func (p *privateTxManager) handleEndorsementResponse(ctx context.Context, messag
 	endorsement := &prototk.AttestationResult{}
 	err = endorsementResponse.GetEndorsement().UnmarshalTo(endorsement)
 	if err != nil {
-		// TODO this is only temproary until we stop using anypb in EndorsementResponse
+		// TODO this is only temporary until we stop using anypb in EndorsementResponse
 		log.L(ctx).Errorf("Wrong type received in EndorsementResponse")
 		return
 	}
@@ -549,7 +640,7 @@ func (p *privateTxManager) handleEndorsementResponse(ctx context.Context, messag
 
 // For now, this is here to help with testing but it seems like it could be useful thing to have
 // in the future if we want to have an eventing interface but at such time we would need to put more effort
-// into the reliabilty of the event delivery or maybe there is only a consumer of the event and it is responsible
+// into the reliability of the event delivery or maybe there is only a consumer of the event and it is responsible
 // for managing multiple subscribers and durability etc...
 func (p *privateTxManager) Subscribe(ctx context.Context, subscriber components.PrivateTxEventSubscriber) {
 	p.subscribersLock.Lock()
