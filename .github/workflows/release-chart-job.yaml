@@ -1,0 +1,44 @@
+name: Helm-chart release
+
+on:
+  workflow_dispatch:
+    inputs:
+      chart:
+        required: true
+        type: choice
+        options:
+        - "paladin-operator"
+        - "paladin-operator-crd"
+      latest:
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  helm-chart-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: git status
+        run: git status
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        with:
+          mark_as_latest: ${{ inputs.latest }}
+          charts_dir: "operator/charts/${{ inputs.chart }}"
+          skip_existing: true
+        env: 
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
