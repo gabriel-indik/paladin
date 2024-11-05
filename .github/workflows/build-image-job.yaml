@@ -44,6 +44,11 @@ on:
         required: false
         default: 'linux/amd64'
         type: string
+      runs-on:
+        description: 'The type of machine to run the job on'
+        required: false
+        default: 'ubuntu-latest'
+        type: string
     secrets:
       username: 
         description: 'Docker registry username'
@@ -54,7 +59,7 @@ on:
 
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
     permissions:
       contents: read
       packages: write
