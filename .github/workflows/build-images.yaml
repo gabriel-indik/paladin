@@ -1,78 +1,81 @@
 name: Build core and operator images
+
 on:
-  push:
-    branches:
-      - main
-      - wf-build-image
-    paths:
-    # run only on changes of code files
-      - '**.go'
-      - '**.java'
-      - '**/build.gradle'
-      - '**/Dockerfile'
-      - '.github/workflows/build-image*.yaml' 
-env:
-  REGISTRY: docker.io
-  REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
-  REPOSITORY: kaleidoinc
-  # REPOSITORY: ${{ github.repository_owner }}
-  IMAGE_TAG: ${{ github.ref_name }}
+  workflow_call:
+    inputs:
+      registry:
+        required: true
+        type: string
+      repository:
+        required: true
+        type: string
+      image_tag:
+        required: true
+        type: string
+    secrets:
+      username:
+        required: true
+      password:
+        required: true
+
 jobs:
   core-macos:
     uses: ./.github/workflows/build-image-job.yaml
     with:
       dockerfile: ./Dockerfile
-      registry: ${{ env.REGISTRY }}
-      image: ${{ env.REPOSITORY }}/paladin
-      image_tag: "macos-${{ env.IMAGE_TAG }}"
+      registry: ${{ inputs.registry }}
+      image: ${{ inputs.repository }}/paladin
+      image_tag: "macos-${{ inputs.image_tag }}"
       push: true
       platforms: linux/arm64
       runs-on: macos-latest
     secrets:
-      username: ${{ env.REGISTRY_USERNAME }}
-      password: ${{ env.REGISTRY_PASSWORD }}
+      username: ${{ secrets.username }}
+      password: ${{ secrets.password }}
+
   core-ubuntu:
     uses: ./.github/workflows/build-image-job.yaml
     with:
       dockerfile: ./Dockerfile
-      registry: ${{ env.REGISTRY }}
-      image: ${{ env.REPOSITORY }}/paladin
-      image_tag: "macos-${{ env.IMAGE_TAG }}"
+      registry: ${{ inputs.registry }}
+      image: ${{ inputs.repository }}/paladin
+      image_tag: "ubuntu-${{ inputs.image_tag }}"
       push: true
       platforms: linux/amd64
       runs-on: ubuntu-latest
     secrets:
-      username: ${{ env.REGISTRY_USERNAME }}
-      password: ${{ env.REGISTRY_PASSWORD }}
+      username: ${{ secrets.username }}
+      password: ${{ secrets.password }}
+
   operator:
     uses: ./.github/workflows/build-image-job.yaml
     with:
       dockerfile: ./operator/Dockerfile
-      registry: ${{ env.REGISTRY }}
-      image: ${{ env.REPOSITORY }}/paladin-operator
-      image_tag: ${{ env.IMAGE_TAG }}
+      registry: ${{ inputs.registry }}
+      image: ${{ inputs.repository }}/paladin-operator
+      image_tag: ${{ inputs.image_tag }}
       push: true
       platforms: linux/amd64,linux/arm64
+      runs-on: ubuntu-latest
     secrets:
-      username: ${{ env.REGISTRY_USERNAME }}
-      password: ${{ env.REGISTRY_PASSWORD }}
-  docker-manifet:
-    if: ${{ inputs.push && inputs.registry == 'docker.io' }}
-    runs-on: ubuntu-latest
-    needs: [core]
-    steps:
-    - name: Docker registry login
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ env.REGISTRY_USERNAME }}
-        password: ${{ env.REGISTRY_PASSWORD }}
-    - name: Docker manifest create
-      run: |
-        docker manifest create \
-          ${{ env.REPOSITORY }}/paladin:${{ env.IMAGE_TAG }} \
-          --amend ${{ env.REPOSITORY }}/paladin:macos-${{ env.IMAGE_TAG }} \
-          --amend ${{ env.REPOSITORY }}/paladin:ubuntu-${{ env.IMAGE_TAG }}
-        docker manifest push ${{ env.REPOSITORY }}/paladin:${{ env.IMAGE_TAG }}
+      username: ${{ secrets.username }}
+      password: ${{ secrets.password }}
 
+  docker-manifest:
+    needs: [core-macos, core-ubuntu]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Docker registry login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ secrets.username }}
+          password: ${{ secrets.password }}
+
+      - name: Create and push Docker manifest
+        run: |
+          docker manifest create \
+            ${{ inputs.repository }}/paladin:${{ inputs.image_tag }} \
+            --amend ${{ inputs.repository }}/paladin:macos-${{ inputs.image_tag }} \
+            --amend ${{ inputs.repository }}/paladin:ubuntu-${{ inputs.image_tag }}
+          docker manifest push ${{ inputs.repository }}/paladin:${{ inputs.image_tag }}

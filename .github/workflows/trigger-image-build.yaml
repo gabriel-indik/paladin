@@ -1,0 +1,25 @@
+name: Trigger image build
+
+on:
+  push:
+    branches:
+      - main
+      - wf-build-image
+    paths:
+      - '**.go'
+      - '**.java'
+      - '**/build.gradle'
+      - '**/Dockerfile'
+      - '.github/workflows/build-image*.yaml'
+
+jobs:
+  call-build-workflow:
+    uses: ./.github/workflows/build-images.yaml
+    with:
+      registry: docker.io
+      repository: kaleidoinc
+      # REPOSITORY: ${{ github.repository_owner }}
+      image_tag: ${{ github.ref_name }}
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
