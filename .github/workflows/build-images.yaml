@@ -12,11 +12,15 @@ on:
       image_tag:
         required: true
         type: string
+      push:
+        required: false
+        type: boolean
+        default: true
     secrets:
       username:
-        required: true
+        required: false
       password:
-        required: true
+        required: false
 
 jobs:
   core-macos:
@@ -26,7 +30,7 @@ jobs:
       registry: ${{ inputs.registry }}
       image: ${{ inputs.repository }}/paladin
       image_tag: "macos-${{ inputs.image_tag }}"
-      push: true
+      push: ${{ inputs.push }}
       platforms: linux/arm64
       runs-on: macos-latest
     secrets:
@@ -40,7 +44,7 @@ jobs:
       registry: ${{ inputs.registry }}
       image: ${{ inputs.repository }}/paladin
       image_tag: "ubuntu-${{ inputs.image_tag }}"
-      push: true
+      push: ${{ inputs.push }}
       platforms: linux/amd64
       runs-on: ubuntu-latest
     secrets:
@@ -54,7 +58,7 @@ jobs:
       registry: ${{ inputs.registry }}
       image: ${{ inputs.repository }}/paladin-operator
       image_tag: ${{ inputs.image_tag }}
-      push: true
+      push: ${{ inputs.push }}
       platforms: linux/amd64,linux/arm64
       runs-on: ubuntu-latest
     secrets:
@@ -62,6 +66,7 @@ jobs:
       password: ${{ secrets.password }}
 
   docker-manifest:
+    if: ${{ inputs.push }}
     needs: [core-macos, core-ubuntu]
     runs-on: ubuntu-latest
     steps:
