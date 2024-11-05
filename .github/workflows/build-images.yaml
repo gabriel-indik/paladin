@@ -29,10 +29,11 @@ jobs:
       dockerfile: ./Dockerfile
       registry: ${{ inputs.registry }}
       image: ${{ inputs.repository }}/paladin
-      image_tag: "macos-${{ inputs.image_tag }}"
+      image_tag: "arm64-${{ inputs.image_tag }}"
       push: ${{ inputs.push }}
       platforms: linux/arm64
-      runs-on: macos-13
+      # runs-on: macos-13
+      runs-on: ubuntu-latest
     secrets:
       username: ${{ secrets.username }}
       password: ${{ secrets.password }}
@@ -43,7 +44,7 @@ jobs:
       dockerfile: ./Dockerfile
       registry: ${{ inputs.registry }}
       image: ${{ inputs.repository }}/paladin
-      image_tag: "ubuntu-${{ inputs.image_tag }}"
+      image_tag: "amd64-${{ inputs.image_tag }}"
       push: ${{ inputs.push }}
       platforms: linux/amd64
       runs-on: ubuntu-latest
@@ -81,6 +82,6 @@ jobs:
         run: |
           docker manifest create \
             ${{ inputs.repository }}/paladin:${{ inputs.image_tag }} \
-            --amend ${{ inputs.repository }}/paladin:macos-${{ inputs.image_tag }} \
-            --amend ${{ inputs.repository }}/paladin:ubuntu-${{ inputs.image_tag }}
+            --amend ${{ inputs.repository }}/paladin:arm64-${{ inputs.image_tag }} \
+            --amend ${{ inputs.repository }}/paladin:amd64-${{ inputs.image_tag }}
           docker manifest push ${{ inputs.repository }}/paladin:${{ inputs.image_tag }}

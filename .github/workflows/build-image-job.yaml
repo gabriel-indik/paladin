@@ -77,12 +77,12 @@ jobs:
         with:
           fetch-depth: 0
       
-      # docker is not installed on MacOS - https://github.com/actions/runner-images/issues/2150 
-      - name: Setup docker (missing on MacOS)
-        if: runner.os == 'macos'
-        run: |
-          brew install docker colima
-          colima start
+      # # docker is not installed on MacOS - https://github.com/actions/runner-images/issues/2150 
+      # - name: Setup docker (missing on MacOS)
+      #   if: runner.os == 'macos'
+      #   run: |
+      #     brew install docker colima
+      #     colima start
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
