@@ -2,7 +2,7 @@ name: Build core and operator images
 on:
   push:
     branches:
-      - wf-build-image
+      - main
     paths:
     # run only on changes of code files
       - '**.go'
