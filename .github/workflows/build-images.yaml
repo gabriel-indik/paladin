@@ -11,14 +11,14 @@ on:
       - '**/build.gradle'
       - '**/Dockerfile'
       - '.github/workflows/build-image*.yaml' 
+env:
+  REGISTRY: docker.io
+  REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+  REPOSITORY: kaleidoinc
+  # REPOSITORY: ${{ github.repository_owner }}
+  IMAGE_TAG: ${{ github.ref_name }}
 jobs:
-  env:
-    REGISTRY: docker.io
-    REGISTRY_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
-    REPOSITORY: kaleidoinc
-    # REPOSITORY: ${{ github.repository_owner }}
-    IMAGE_TAG: ${{ github.ref_name }}
   core-macos:
     uses: ./.github/workflows/build-image-job.yaml
     with:
