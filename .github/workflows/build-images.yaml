@@ -32,7 +32,7 @@ jobs:
       image_tag: "macos-${{ inputs.image_tag }}"
       push: ${{ inputs.push }}
       platforms: linux/arm64
-      runs-on: macos-latest
+      runs-on: macos-13
     secrets:
       username: ${{ secrets.username }}
       password: ${{ secrets.password }}
