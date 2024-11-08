@@ -14,10 +14,6 @@
     background-color: #F4FCFC;
 }
 
-[data-md-color-scheme="paladin"] img[src$="#only-dark"] {
-    display: none;
-}
-
 [data-md-color-scheme="paladin-dark"] {
     --md-primary-fg-color: #212121;
     --md-primary-fg-color--light: #212121;
@@ -39,6 +35,13 @@
 [data-md-color-scheme="paladin-dark"] .md-tabs__link {
     font-weight: bolder;
 }
+
+[data-sm-color-scheme="paladin"] img[src$="#only-dark"] ,
+[data-md-color-scheme="paladin"] img[src$="#only-dark"] {
+    display: none;
+}
+
+[data-sm-color-scheme="paladin-dark"] img[src$="#only-light"],
 [data-md-color-scheme="paladin-dark"] img[src$="#only-light"] {
     display: none;
 }
